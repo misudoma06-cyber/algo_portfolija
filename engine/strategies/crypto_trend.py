@@ -17,6 +17,9 @@ class CryptoTrend(Strategy):
     def default_params(self):
         return {"fast": 20, "slow": 50, "trend": 100}
 
+    def param_grid(self):
+        return {"fast": [10, 20, 30], "slow": [40, 50, 80], "trend": [100, 150, 200]}
+
     def generate_signals(self, df):
         p = self.params
         c = df["close"]

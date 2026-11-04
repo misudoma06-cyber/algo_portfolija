@@ -1,0 +1,26 @@
+name: Paper trading bot
+
+on:
+  schedule:
+    - cron: "15 21 * * *"     # vsak dan ob 21:15 UTC (22:15 pri nas pozimi), po zaprtju ameriške borze
+  workflow_dispatch:          # ročni zagon (gumb v aplikaciji ali na GitHubu)
+
+permissions:
+  contents: write
+
+jobs:
+  trade:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -r requirements.txt
+      - name: Zaženi bota
+        env:
+          ALPACA_KEY: ${{ secrets.ALPACA_KEY }}
+          ALPACA_SECRET: ${{ secrets.ALPACA_SECRET }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: python trader/run_paper.py

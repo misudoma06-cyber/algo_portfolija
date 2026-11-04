@@ -18,6 +18,9 @@ class Donchian(Strategy):
     def default_params(self):
         return {"entry": 55, "exit": 20}
 
+    def param_grid(self):
+        return {"entry": [20, 40, 55, 80, 100], "exit": [10, 20, 30]}
+
     def generate_signals(self, df):
         p = self.params
         hi_e = df["high"].rolling(p["entry"]).max().shift(1).values

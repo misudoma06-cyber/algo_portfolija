@@ -25,6 +25,9 @@ class RSI2(Strategy):
     def default_params(self):
         return {"rsi_n": 2, "long_entry": 10, "short_entry": 90, "trend": 200, "exit_ma": 5}
 
+    def param_grid(self):
+        return {"long_entry": [5, 10, 15, 20], "short_entry": [80, 85, 90, 95], "exit_ma": [3, 5, 10]}
+
     def generate_signals(self, df):
         p = self.params
         c = df["close"]

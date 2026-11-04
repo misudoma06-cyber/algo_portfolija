@@ -28,6 +28,10 @@ class Strategy:
     def default_params(self):
         return {}
 
+    def param_grid(self):
+        """Vrednosti parametrov za walk-forward test."""
+        return {}
+
     def generate_signals(self, df: pd.DataFrame) -> pd.Series:
         raise NotImplementedError("Strategija mora imeti generate_signals()")
 

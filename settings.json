@@ -1,13 +1,55 @@
 {
  "markets": {
-  "BTC-USD":  {"ime": "Bitcoin",            "trg": "crypto"},
-  "ETH-USD":  {"ime": "Ethereum",           "trg": "crypto"},
-  "SOL-USD":  {"ime": "Solana",             "trg": "crypto"},
-  "QQQ":      {"ime": "Nasdaq 100 (QQQ)",   "trg": "index"},
-  "SPY":      {"ime": "S&P 500 (SPY)",      "trg": "index"},
-  "DX-Y.NYB": {"ime": "USD indeks (DXY)",   "trg": "forex"},
-  "EURUSD=X": {"ime": "EUR/USD",            "trg": "forex"},
-  "GC=F":     {"ime": "Zlato",              "trg": "commodity"}
+  "BTC-USD": {
+   "ime": "Bitcoin",
+   "trg": "crypto"
+  },
+  "ETH-USD": {
+   "ime": "Ethereum",
+   "trg": "crypto"
+  },
+  "SOL-USD": {
+   "ime": "Solana",
+   "trg": "crypto"
+  },
+  "QQQ": {
+   "ime": "Nasdaq 100 (QQQ)",
+   "trg": "index"
+  },
+  "SPY": {
+   "ime": "S&P 500 (SPY)",
+   "trg": "index"
+  },
+  "DX-Y.NYB": {
+   "ime": "USD indeks (DXY)",
+   "trg": "forex"
+  },
+  "EURUSD=X": {
+   "ime": "EUR/USD",
+   "trg": "forex"
+  },
+  "GC=F": {
+   "ime": "Zlato",
+   "trg": "commodity"
+  }
  },
- "strategies_on": {"crypto_trend": true, "rsi2": true, "donchian": true}
+ "strategies_on": {
+  "crypto_trend": true,
+  "rsi2": true,
+  "donchian": true,
+  "tsmom": true,
+  "bollinger_mr": true
+ },
+ "overrides": {},
+ "edge": [],
+ "risk": {
+  "target_vol": 0.15,
+  "max_lev": 3.0,
+  "cost": 0.001
+ },
+ "paper": {
+  "enabled": false,
+  "only_edge": true,
+  "capital_use": 1.0
+ }
 }
