@@ -6,10 +6,9 @@ import pandas as pd
 
 
 def bars_per_year(index):
-    step = pd.Series(index).diff().median()
-    # delnice/indeksi trgujejo ~252 dni na leto, kripto 365 – ocenimo iz podatkov
-    span_days = (index[-1] - index[0]).days or 1
-    return len(index) / span_days * 365 if step >= pd.Timedelta(hours=20) else pd.Timedelta(days=365) / step
+    # dejansko število svečk na leto iz podatkov (delnice imajo noči/vikende brez svečk, kripto ne)
+    span_days = max((index[-1] - index[0]).total_seconds() / 86400, 1)
+    return len(index) / span_days * 365
 
 
 def apply_regime_filter(signals, regimes, regime):
