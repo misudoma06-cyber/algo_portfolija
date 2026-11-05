@@ -27,6 +27,8 @@ MAX_GROSS = 1.0       # skupna izpostavljenost največ 100 % kapitala (brez vzvo
 
 def plan(settings, log=print):
     """Izračuna ciljne pozicije (delež kapitala na Alpaca simbol). Ne trguje."""
+    from engine.custom import register_custom
+    register_custom(settings.get("custom_strategies", {}))
     data, auto = {}, {}
     for sym in settings["markets"]:
         try:

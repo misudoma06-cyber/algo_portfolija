@@ -86,6 +86,8 @@ def load_settings(default_path):
     s.setdefault("risk", {"target_vol": 0.15, "max_lev": 3.0, "cost": 0.001})
     s.setdefault("paper", {"enabled": False, "only_edge": True, "capital_use": 1.0})
     s.setdefault("edge", [])
+    s.setdefault("custom_strategies", {})
+    s.setdefault("lab_saved", {})
     return s, src
 
 

@@ -461,9 +461,9 @@ def move_calculator(df, pct=None):
 # VSE SKUPAJ
 # =====================================================================
 def run_lab(df, name, params, corr, entry_mode="open", od=None, do=None, risk=0.01,
-            zz_pct=None, cost=0.001, n_random=1000):
+            zz_pct=None, cost=0.001, n_random=1000, strategies=None):
     corr = {**DEFAULT_CORR, **(corr or {})}
-    func = LAB_STRATEGIES[name]["func"]
+    func = (strategies or LAB_STRATEGIES)[name]["func"]
     base = func(df, params)
     sigs = apply_corrections(df, base, corr)
     pm = period_mask(df.index, od, do)
@@ -496,3 +496,165 @@ def run_lab(df, name, params, corr, entry_mode="open", od=None, do=None, risk=0.
     return {"trades": trades, "stats": stats, "equity": eq, "account": acc, "random": rnd,
             "by_regime": by_regime, "by_day": by_day, "by_hour": by_hour, "grid": grid,
             "move": mv, "pmask": pm, "n_signals": len(base), "n_after_corr": len(sigs)}
+
+
+def all_lab_strategies(custom=None):
+    """Vgrajene + shranjene strategije iz graditelja."""
+    from .builder import spec_signals
+    out = dict(LAB_STRATEGIES)
+    for nm, spec in (custom or {}).items():
+        out["custom:" + nm] = {"label": f"🧩 {nm}", "func": (lambda sp: (lambda df, p: spec_signals(df, sp)))(spec),
+                               "params": {}, "doc": spec.get("opis") or "Strategija iz graditelja."}
+    return out
+
+
+# =====================================================================
+# WALK-FORWARD ZA LAB (mreža SL/TP: učenje -> test)
+# =====================================================================
+def lab_walkforward(df, sigs_base, sigs_corr, corr, cost, entry_mode, pm, split=0.7, min_trades=10):
+    idx = np.flatnonzero(pm)
+    if len(idx) < 50:
+        return None
+    cut = idx[0] + int(len(idx) * split)
+    is_m, oos_m = pm.copy(), pm.copy()
+    is_m[cut:] = False
+    oos_m[:cut] = False
+    g_is = sl_tp_grid(df, sigs_base, corr, cost, entry_mode, is_m)
+    g_oos = sl_tp_grid(df, sigs_base, corr, cost, entry_mode, oos_m)
+    if g_is.empty:
+        return None
+    g = g_is.merge(g_oos, on=["SL ×", "TP (R)"], suffixes=(" učenje", " test"))
+    cand = g[g["Trejdov učenje"] >= min_trades]
+    best = cand.sort_values("Povp. R učenje").iloc[-1] if len(cand) else None
+    stab = float((g["Povp. R test"] > 0).mean() * 100)
+
+    def _stats(mask):
+        t = simulate(df, sigs_corr, cost, corr.get("trail_r", 0), corr.get("be_r", 0), entry_mode)
+        t = t[mask[t["_e"].values.astype(int)]] if len(t) else t
+        return trade_stats(t)
+    cur_is, cur_oos = _stats(is_m), _stats(oos_m)
+    if best is not None and stab >= 70 and best["Povp. R test"] > 0:
+        verdict = "✅ robustno"
+    elif stab >= 50 and (best is None or best["Povp. R test"] > 0):
+        verdict = "🟡 delno robustno"
+    else:
+        verdict = "❌ verjetno overfit / ni edga"
+    return {"table": g, "best": best, "stability_%": round(stab, 1), "split_date": df.index[cut],
+            "current_is": cur_is, "current_oos": cur_oos, "verdict": verdict}
+
+
+# =====================================================================
+# TEST NA VEČ TRGIH
+# =====================================================================
+def multi_market(data, func, params, corr, entry_mode="open", od=None, do=None, cost=0.001, n_random=300):
+    corr = {**DEFAULT_CORR, **(corr or {})}
+    rows, all_tr, means, weights, cmp_R = [], [], [], [], []
+    for sym, df in data.items():
+        if isinstance(df, Exception):
+            rows.append({"Trg": sym, "Ocena": f"napaka: {df}"})
+            continue
+        try:
+            sigs = apply_corrections(df, func(df, params), corr)
+            pm = period_mask(df.index, od, do)
+            tr = simulate(df, sigs, cost, corr["trail_r"], corr["be_r"], entry_mode)
+            if len(tr):
+                tr = tr[pm[tr["_e"].values.astype(int)]]
+            stt = trade_stats(tr)
+            rnd = random_test(df, tr, pm, n_random, cost, corr["trail_r"], corr["be_r"])
+            closed = tr[tr["razlog"] != "odprt"].copy()
+            closed["trg"] = sym
+            all_tr.append(closed)
+            if rnd:
+                means.append(rnd["means"])
+                weights.append(len(closed))
+                cmp_R += list(closed["R"])
+            rows.append({"Trg": sym, **stt, "Boljša od naklj. %": rnd["percentile"] if rnd else None,
+                         "Ocena": rnd["verdict"] if rnd else "⚪ premalo trejdov"})
+        except Exception as e:
+            rows.append({"Trg": sym, "Ocena": f"napaka: {e}"})
+    trades = pd.concat(all_tr, ignore_index=True) if all_tr else pd.DataFrame()
+    pooled = trade_stats(trades) if len(trades) else {"Trejdov": 0}
+    pct, verdict = None, "⚪ premalo trejdov"
+    if means:
+        w = np.array(weights, float)
+        mix = (np.vstack(means) * w[:, None]).sum(0) / w.sum()
+        pct = round(float((mix < np.mean(cmp_R)).mean() * 100), 1)
+        if len(cmp_R) >= 20:
+            verdict = "✅ edge" if pct >= 95 else "🟡 obetavno" if pct >= 80 else "❌ ni edga"
+    if len(trades):
+        trades = trades.sort_values("vstop").reset_index(drop=True)
+    return {"table": pd.DataFrame(rows), "trades": trades, "pooled": pooled, "percentile": pct, "verdict": verdict}
+
+
+# =====================================================================
+# FTMO SIMULACIJA NA TREJDIH (2 fazi, varovalka)
+# =====================================================================
+FTMO_LAB = {"faza 1": 0.10, "faza 2": 0.05}
+
+
+def _challenge(R, MAE, vstop, izstop, s, risk, target, guard, max_days, daily_loss, max_loss, min_days):
+    bal, days, day_pnl, worst_day = 1.0, set(), {}, 0.0
+    t0 = vstop[s]
+    for k in range(s, len(R)):
+        if max_days and (izstop[k] - t0).days > max_days:
+            return "TIMEOUT", k, bal, worst_day
+        r = risk
+        if guard:
+            if bal - 1 <= -0.06:
+                r *= 0.25
+            elif bal - 1 <= -0.03:
+                r *= 0.5
+            if (1 + target) - bal < 2 * risk:
+                r *= 0.5
+        d = izstop[k].date()
+        before = day_pnl.get(d, 0.0)
+        mae = max(MAE[k], 0)
+        if bal - r * mae <= 1 - max_loss:
+            return "FAIL (max izguba)", k, bal - r * mae, min(worst_day, before - r * mae)
+        if before - r * mae <= -daily_loss:
+            return "FAIL (dnevna izguba)", k, bal - r * mae, before - r * mae
+        pnl = r * R[k]
+        bal += pnl
+        day_pnl[d] = before + pnl
+        worst_day = min(worst_day, day_pnl[d])
+        days.add(vstop[k].date())
+        days.add(d)
+        if bal <= 1 - max_loss:
+            return "FAIL (max izguba)", k, bal, worst_day
+        if day_pnl[d] <= -daily_loss:
+            return "FAIL (dnevna izguba)", k, bal, worst_day
+        if bal >= 1 + target and len(days) >= min_days:
+            return "PASS", k, bal, worst_day
+    return "NEDOKONČANO", len(R) - 1, bal, worst_day
+
+
+def ftmo_trades(trades, risk=0.01, guard=True, max_days=0, daily_loss=0.05, max_loss=0.10, min_days=4):
+    t = trades[trades["razlog"] != "odprt"].sort_values("vstop").reset_index(drop=True)
+    if len(t) < 5:
+        return pd.DataFrame(), {}
+    R, MAE = t["R"].values, t["MAE_R"].fillna(1).values
+    vstop, izstop = list(pd.DatetimeIndex(t["vstop"])), list(pd.DatetimeIndex(t["izstop"]))
+    out = []
+    for s in range(len(t)):
+        r1, k1, b1, w1 = _challenge(R, MAE, vstop, izstop, s, risk, FTMO_LAB["faza 1"], guard, max_days,
+                                    daily_loss, max_loss, min_days)
+        res, k_end, w = "faza 1: " + r1, k1, w1
+        if r1 == "PASS":
+            if k1 + 1 >= len(t):
+                res = "faza 2: NEDOKONČANO"
+            else:
+                r2, k2, b2, w2 = _challenge(R, MAE, vstop, izstop, k1 + 1, risk, FTMO_LAB["faza 2"], guard,
+                                            max_days, daily_loss, max_loss, min_days)
+                res, k_end, w = ("PASS (obe fazi)" if r2 == "PASS" else "faza 2: " + r2), k2, min(w1, w2)
+        out.append({"začetek": vstop[s], "rezultat": res, "dni": (izstop[k_end] - vstop[s]).days,
+                    "najslabši dan %": round(w * 100, 2)})
+    res = pd.DataFrame(out)
+    ok = res["rezultat"] == "PASS (obe fazi)"
+    fail = res["rezultat"].str.contains("FAIL")
+    summ = {"Začetkov": len(res), "PASS obe fazi %": round(ok.mean() * 100, 1),
+            "FAIL %": round(fail.mean() * 100, 1),
+            "Nedokončano / čas %": round((~ok & ~fail).mean() * 100, 1),
+            "Mediana dni do PASS": int(res.loc[ok, "dni"].median()) if ok.any() else None,
+            "Najhitrejših 25 % (dni)": int(res.loc[ok, "dni"].quantile(0.25)) if ok.any() else None,
+            "Najslabši dan %": round(res["najslabši dan %"].min(), 2)}
+    return res, summ
